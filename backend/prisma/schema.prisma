@@ -24,6 +24,17 @@ model users {
   status        String   @default("active")
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  tokenHash String
+  user      users    @relation(fields: [user_id], references: [user_id])
+  user_id   Int
+  createdAt DateTime @default(now())
+  expiresAt DateTime
 }
 
 
