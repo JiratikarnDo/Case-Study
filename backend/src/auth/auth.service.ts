@@ -2,8 +2,12 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDoctorDto } from './dto/registerdoctor.dto';
 import { JwtService } from '@nestjs/jwt';
+import { ConflictException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+
 
 @Injectable()
 export class AuthService {
@@ -38,8 +42,59 @@ export class AuthService {
         name: user.name,
         email: user.email,
       },
-    };
+    }; 
   }
+
+async registerDoctor(dto: RegisterDoctorDto) {
+  const dup = await this.prisma.users.findFirst({
+    where: { OR: [{ email: dto.email }, { citizen_id: dto.citizen_id }] },
+    select: { email: true, citizen_id: true },
+  });
+  if (dup) {
+    if (dup.email === dto.email) throw new ConflictException('อีเมลนี้ถูกใช้แล้ว');
+    if (dup.citizen_id === dto.citizen_id) throw new ConflictException('เลขบัตรประชาชนนี้ถูกใช้แล้ว');
+  }
+
+  const hashed = await bcrypt.hash(dto.password, 10);
+
+  try {
+    const user = await this.prisma.$transaction(async (tx) => {
+      const newUser = await tx.users.create({
+        data: {
+          name: dto.name,
+          email: dto.email,
+          password_hash: hashed,
+          citizen_id: dto.citizen_id,
+          birth_date: new Date(dto.birth_date),
+          role: 'doctor',
+        },
+      });
+
+      await tx.doctorProfile.create({
+        data: {
+          user_id: newUser.user_id,
+          specialtyId: dto.specialtyId,
+          licenseNo: dto.licenseNo ?? null,
+          bio: dto.bio ?? null,
+        },
+      });
+
+      return newUser;
+    });
+
+    return {
+      message: 'Register doctor success',
+      user: { id: user.user_id, name: user.name, email: user.email, role: user.role },
+    };
+  } catch (e) {
+    if (e instanceof PrismaClientKnownRequestError && e.code === 'P2002') {
+      const target = (e as any).meta?.target as string[] | undefined;
+      if (target?.includes('users_email_key')) throw new ConflictException('อีเมลนี้ถูกใช้แล้ว');
+      if (target?.includes('users_citizen_id_key')) throw new ConflictException('เลขบัตรประชาชนนี้ถูกใช้แล้ว');
+    }
+    throw e;
+  }
+}
 
 async login(dto: LoginDto) {
   const user = await this.prisma.users.findUnique({ where: { email: dto.email } });
@@ -75,11 +130,10 @@ async login(dto: LoginDto) {
       id: user.user_id,
       name: user.name,
       email: user.email,
-      
+      role: user.role,
     },
     accessToken,
     refreshToken,
-  };
-}
-
+    };
+  }
 }

@@ -14,27 +14,56 @@ datasource db {
 }
 
 model users {
-  user_id       Int      @id @default(autoincrement())
+  user_id       Int       @id @default(autoincrement())
   name          String
-  email         String   @unique
+  email         String    @unique
   password_hash String
-  citizen_id    String   @unique
+  citizen_id    String    @unique
   birth_date    DateTime
-  role          String   @default("patient")
-  status        String   @default("active")
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  role          String    @default("patient")
+  status        String    @default("active")
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
 
   refreshTokens RefreshToken[]
+  doctorProfile DoctorProfile?
 }
 
 model RefreshToken {
-  id        Int      @id @default(autoincrement())
-  tokenHash String
-  user      users    @relation(fields: [user_id], references: [user_id])
-  user_id   Int
-  createdAt DateTime @default(now())
-  expiresAt DateTime
+  id         Int      @id @default(autoincrement())
+  tokenHash  String
+  user_id    Int
+  user       users    @relation(fields: [user_id], references: [user_id])
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+}
+
+model DoctorProfile {
+  user_id     Int          @id
+  user        users        @relation(fields: [user_id], references: [user_id])
+  specialtyId Int
+  specialty   Specialty    @relation(fields: [specialtyId], references: [id])
+  licenseNo   String?
+  bio         String?
+
+  slots       DoctorSlot[] // 1 doctor มีหลาย slot
+}
+
+model Specialty {
+  id      Int             @id @default(autoincrement())
+  name    String          @unique
+
+  doctors DoctorProfile[]
+}
+
+model DoctorSlot {
+  id         Int           @id @default(autoincrement())
+  doctor_id  Int
+  doctor     DoctorProfile @relation(fields: [doctor_id], references: [user_id])
+  startTime  DateTime
+  endTime    DateTime
+  status     String        @default("available")
+  createdAt  DateTime      @default(now())
 }
 
 

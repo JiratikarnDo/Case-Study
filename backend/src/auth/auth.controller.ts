@@ -4,11 +4,13 @@ import {
   Post, 
   Get, 
   UseGuards, 
-  Req 
+  Req,
+  Query
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDoctorDto } from './dto/registerdoctor.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 
@@ -32,4 +34,10 @@ export class AuthController {
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }
+
+  @Post('register-doctor')
+  async registerDoctor(@Body() dto: RegisterDoctorDto) {
+  return this.authService.registerDoctor(dto);
+  }
+
 }
