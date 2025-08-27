@@ -66,4 +66,16 @@ model DoctorSlot {
   createdAt  DateTime      @default(now())
 }
 
+model Appointment {
+  id          Int          @id @default(autoincrement())
+  patient     User         @relation(fields: [patient_id], references: [user_id])
+  patient_id  Int
+  slot        DoctorSlot   @relation(fields: [slot_id], references: [id])
+  slot_id     Int
+
+  status      String       @default("booked") // booked | canceled | done
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+}
+
 
