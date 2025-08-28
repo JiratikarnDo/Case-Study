@@ -36,22 +36,42 @@ export class AppointmentService {
     });
   }
 
-  async getMyAppointments(userId: number) {
-    return this.prisma.appointment.findMany({
-      where: { patient_id: userId },
-      include: {
-        slot: { include: { doctor: { include: { user: true, specialty: true } } } },
+async getMyAppointments(userId: number) {
+  return this.prisma.appointment.findMany({
+    where: { patient_id: { equals: userId } },
+    select: {
+      id: true,
+      // เอาเวลานัด + หมอ
+      slot: {
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+          doctor: {
+            select: {
+              user: { select: { user_id: true, name: true, email: true } },
+              specialtyId: true,
+            },
+          },
+        },
       },
-    });
-  }
+    },
+    orderBy: { id: 'desc' },
+  });
+}
 
+  // หมอเห็นเฉพาะนัดที่เป็นของตัวเอง
   async getDoctorAppointments(userId: number) {
     return this.prisma.appointment.findMany({
-      where: { slot: { doctor_id: userId } },
-      include: {
-        patient: true,
-        slot: true,
+      where: { slot: { doctor_id: { equals: userId } } },
+      select: {
+        id: true,
+        // คนไข้ (users)
+        patient: { select: { user_id: true, name: true, email: true } },
+        // เวลานัด
+        slot: { select: { id: true, startTime: true, endTime: true } },
       },
+      orderBy: { id: 'desc' },
     });
   }
 }

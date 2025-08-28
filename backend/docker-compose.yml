@@ -1,0 +1,37 @@
+services:
+  backend:
+    build: .
+    container_name: nest-backend
+    ports:
+      - "4000:4000"
+    env_file:
+      - ./.env
+    depends_on:
+      db:
+        condition: service_healthy 
+    command: >
+      sh -c "npx prisma generate &&
+             npx prisma migrate deploy &&
+             node dist/main.js"
+
+  db:
+    image: mysql:8.0
+    container_name: mysql-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+
+    ports:
+      - "3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p$MYSQL_ROOT_PASSWORD --silent || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  db_data:
