@@ -20,13 +20,17 @@ model users {
   password_hash String
   citizen_id    String    @unique
   birth_date    DateTime
+  phone         String    @default("")
+  gender        String    @default("unknown")
   role          String    @default("patient")
+  address       String    @default("")
   status        String    @default("active")
   created_at    DateTime  @default(now())
   updated_at    DateTime  @updatedAt
 
   refreshTokens RefreshToken[]
   doctorProfile DoctorProfile?
+  appointments  Appointment[]
 }
 
 model RefreshToken {
@@ -39,14 +43,15 @@ model RefreshToken {
 }
 
 model DoctorProfile {
-  user_id     Int          @id
-  user        users        @relation(fields: [user_id], references: [user_id])
-  specialtyId Int
-  specialty   Specialty    @relation(fields: [specialtyId], references: [id])
-  licenseNo   String?
-  bio         String?
+  user_id      Int          @id
+  user         users        @relation(fields: [user_id], references: [user_id])
+  specialtyId  Int
+  specialty    Specialty    @relation(fields: [specialtyId], references: [id])
+  licenseNo    String?
+  bio          String?
 
-  slots       DoctorSlot[] // 1 doctor มีหลาย slot
+  slots        DoctorSlot[]
+  appointments Appointment[]
 }
 
 model Specialty {
@@ -64,14 +69,21 @@ model DoctorSlot {
   endTime    DateTime
   status     String        @default("available")
   createdAt  DateTime      @default(now())
+
+  appointments Appointment[]
 }
 
 model Appointment {
   id          Int          @id @default(autoincrement())
-  patient     User         @relation(fields: [patient_id], references: [user_id])
+  
   patient_id  Int
-  slot        DoctorSlot   @relation(fields: [slot_id], references: [id])
+  patient     users        @relation(fields: [patient_id], references: [user_id])
+
   slot_id     Int
+  slot        DoctorSlot   @relation(fields: [slot_id], references: [id])
+  
+  doctor_id   Int
+  doctor      DoctorProfile @relation(fields: [doctor_id], references: [user_id])
 
   status      String       @default("booked") // booked | canceled | done
   created_at  DateTime     @default(now())
