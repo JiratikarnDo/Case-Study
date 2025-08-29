@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConflictException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { UnauthorizedException } from '@nestjs/common';
 
 
 @Injectable()
@@ -45,95 +46,170 @@ export class AuthService {
     }; 
   }
 
-async registerDoctor(dto: RegisterDoctorDto) {
-  const dup = await this.prisma.users.findFirst({
-    where: { OR: [{ email: dto.email }, { citizen_id: dto.citizen_id }] },
-    select: { email: true, citizen_id: true },
-  });
-  if (dup) {
-    if (dup.email === dto.email) throw new ConflictException('อีเมลนี้ถูกใช้แล้ว');
-    if (dup.citizen_id === dto.citizen_id) throw new ConflictException('เลขบัตรประชาชนนี้ถูกใช้แล้ว');
+  async registerDoctor(dto: RegisterDoctorDto) {
+    const dup = await this.prisma.users.findFirst({
+      where: { OR: [{ email: dto.email }, { citizen_id: dto.citizen_id }] },
+      select: { email: true, citizen_id: true },
+    });
+    if (dup) {
+      if (dup.email === dto.email) throw new ConflictException('อีเมลนี้ถูกใช้แล้ว');
+      if (dup.citizen_id === dto.citizen_id) throw new ConflictException('เลขบัตรประชาชนนี้ถูกใช้แล้ว');
+    }
+
+    const hashed = await bcrypt.hash(dto.password, 10);
+
+    try {
+      const user = await this.prisma.$transaction(async (tx) => {
+        const newUser = await tx.users.create({
+          data: {
+            name: dto.name,
+            email: dto.email,
+            password_hash: hashed,
+            citizen_id: dto.citizen_id,
+            birth_date: new Date(dto.birth_date),
+            role: 'doctor',
+          },
+        });
+
+        await tx.doctorProfile.create({
+          data: {
+            user_id: newUser.user_id,
+            specialtyId: dto.specialtyId,
+            licenseNo: dto.licenseNo ?? null,
+            bio: dto.bio ?? null,
+          },
+        });
+
+        return newUser;
+      });
+
+      return {
+        message: 'Register doctor success',
+        user: { id: user.user_id, name: user.name, email: user.email, role: user.role },
+      };
+    } catch (e) {
+      if (e instanceof PrismaClientKnownRequestError && e.code === 'P2002') {
+        const target = (e as any).meta?.target as string[] | undefined;
+        if (target?.includes('users_email_key')) throw new ConflictException('อีเมลนี้ถูกใช้แล้ว');
+        if (target?.includes('users_citizen_id_key')) throw new ConflictException('เลขบัตรประชาชนนี้ถูกใช้แล้ว');
+      }
+      throw e;
+    }
   }
 
-  const hashed = await bcrypt.hash(dto.password, 10);
+  async login(dto: LoginDto) {
+    const user = await this.prisma.users.findUnique({ where: { email: dto.email } });
+    if (!user) throw new BadRequestException('Invalid credentials');
 
-  try {
-    const user = await this.prisma.$transaction(async (tx) => {
-      const newUser = await tx.users.create({
-        data: {
-          name: dto.name,
-          email: dto.email,
-          password_hash: hashed,
-          citizen_id: dto.citizen_id,
-          birth_date: new Date(dto.birth_date),
-          role: 'doctor',
-        },
-      });
+    const isValid = await bcrypt.compare(dto.password, user.password_hash);
+    if (!isValid) throw new BadRequestException('Invalid credentials');
 
-      await tx.doctorProfile.create({
-        data: {
-          user_id: newUser.user_id,
-          specialtyId: dto.specialtyId,
-          licenseNo: dto.licenseNo ?? null,
-          bio: dto.bio ?? null,
-        },
-      });
+    const payload = { sub: user.user_id, email: user.email, role: user.role };
 
-      return newUser;
+    const accessToken = await this.jwtService.signAsync(payload, {
+      secret: process.env.JWT_ACCESS_SECRET,
+      expiresIn: process.env.JWT_ACCESS_EXPIRES,
+    });
+
+    const refreshToken = await this.jwtService.signAsync(payload, {
+      secret: process.env.JWT_REFRESH_SECRET,
+      expiresIn: process.env.JWT_REFRESH_EXPIRES,
+    });
+
+    const hashedRefresh = await bcrypt.hash(refreshToken, 10);
+    await this.prisma.refreshToken.create({
+      data: {
+        user_id: user.user_id,
+        tokenHash: hashedRefresh,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 วัน
+      },
     });
 
     return {
-      message: 'Register doctor success',
-      user: { id: user.user_id, name: user.name, email: user.email, role: user.role },
-    };
-  } catch (e) {
-    if (e instanceof PrismaClientKnownRequestError && e.code === 'P2002') {
-      const target = (e as any).meta?.target as string[] | undefined;
-      if (target?.includes('users_email_key')) throw new ConflictException('อีเมลนี้ถูกใช้แล้ว');
-      if (target?.includes('users_citizen_id_key')) throw new ConflictException('เลขบัตรประชาชนนี้ถูกใช้แล้ว');
+      message: 'Login success',
+      user: {
+        id: user.user_id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+      accessToken,
+      refreshToken,
+      };
+  }
+
+  async loginDoctor(dto: LoginDto) {
+    const user = await this.prisma.users.findUnique({ where: { email: dto.email } });
+    if (!user) throw new BadRequestException('Invalid credentials');
+
+    // เช็ค password
+    const isValid = await bcrypt.compare(dto.password, user.password_hash);
+    if (!isValid) throw new BadRequestException('Invalid credentials');
+
+    // เช็ค role ให้เข้าได้เฉพาะ doctor หรือ admin
+    if (user.role !== 'doctor' && user.role !== 'admin') {
+      throw new UnauthorizedException('Access restricted to doctors or admins');
     }
-    throw e;
-  }
-}
 
-async login(dto: LoginDto) {
-  const user = await this.prisma.users.findUnique({ where: { email: dto.email } });
-  if (!user) throw new BadRequestException('Invalid credentials');
+    const payload = { sub: user.user_id, email: user.email, role: user.role };
 
-  const isValid = await bcrypt.compare(dto.password, user.password_hash);
-  if (!isValid) throw new BadRequestException('Invalid credentials');
+    const accessToken = await this.jwtService.signAsync(payload, {
+      secret: process.env.JWT_ACCESS_SECRET,
+      expiresIn: process.env.JWT_ACCESS_EXPIRES,
+    });
 
-  const payload = { sub: user.user_id, email: user.email, role: user.role };
+    const refreshToken = await this.jwtService.signAsync(payload, {
+      secret: process.env.JWT_REFRESH_SECRET,
+      expiresIn: process.env.JWT_REFRESH_EXPIRES,
+    });
 
-  const accessToken = await this.jwtService.signAsync(payload, {
-    secret: process.env.JWT_ACCESS_SECRET,
-    expiresIn: process.env.JWT_ACCESS_EXPIRES,
-  });
+    const hashedRefresh = await bcrypt.hash(refreshToken, 10);
+    await this.prisma.refreshToken.create({
+      data: {
+        user_id: user.user_id,
+        tokenHash: hashedRefresh,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
 
-  const refreshToken = await this.jwtService.signAsync(payload, {
-    secret: process.env.JWT_REFRESH_SECRET,
-    expiresIn: process.env.JWT_REFRESH_EXPIRES,
-  });
-
-  const hashedRefresh = await bcrypt.hash(refreshToken, 10);
-  await this.prisma.refreshToken.create({
-    data: {
-      user_id: user.user_id,
-      tokenHash: hashedRefresh,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 วัน
-    },
-  });
-
-  return {
-    message: 'Login success',
-    user: {
-      id: user.user_id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    },
-    accessToken,
-    refreshToken,
+    return {
+      message: 'Doctor/Admin Login success',
+      user: {
+        id: user.user_id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+      accessToken,
+      refreshToken,
     };
   }
+
+  async refreshToken(refreshToken: string) {
+    try {
+      // ตรวจสอบ refresh token
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
+
+      // อก access token ใหม่
+      const newAccessToken = this.jwtService.sign(
+        {
+          sub: payload.sub,
+          role: payload.role,
+          doctorId: payload.doctorId,
+        },
+        {
+          secret: process.env.JWT_ACCESS_SECRET,
+          expiresIn: process.env.JWT_ACCESS_EXPIRES,
+        }
+      );
+
+      // return ค่าออกไป
+      return { accessToken: newAccessToken };
+    } catch (err) {
+      throw new UnauthorizedException("Invalid or expired refresh token");
+    }
+  }
+  
 }

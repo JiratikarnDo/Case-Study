@@ -35,9 +35,18 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
-  @Post('register-doctor')
+  @Post('register/doctor')
   async registerDoctor(@Body() dto: RegisterDoctorDto) {
   return this.authService.registerDoctor(dto);
   }
 
+  @Post('login/doctor')
+  loginDoctor(@Body() dto: LoginDto) {
+    return this.authService.loginDoctor(dto);
+  }
+
+  @Post("refresh")
+  async refresh(@Body("refreshToken") refreshToken: string) {
+    return this.authService.refreshToken(refreshToken);
+  }
 }

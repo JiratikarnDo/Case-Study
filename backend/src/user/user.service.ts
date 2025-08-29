@@ -14,6 +14,8 @@ export class UserService {
         email: true,
         role: true,
         status: true,
+        address: true,
+        phone: true,
         created_at: true,
         updated_at: true,
       },
